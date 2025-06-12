@@ -90,6 +90,14 @@ Each time you call it, a new, unique number will be returned. The first time you
 
 You can also check the interactive API documentation provided by FastAPI at `http://127.0.0.1:8000/docs`.
 
+## Logging
+
+The application implements centralized, rotating file-based logging.
+
+-   **Location**: All logs are written to the `logs/server.log` file in the project's root directory. The `logs/` directory is created automatically if it does not exist.
+-   **Rotation**: To prevent the log file from growing infinitely, it is configured to "rotate". A new file is created when the current log file reaches 5MB in size. The system will keep the 3 most recent log files.
+-   **Format**: Logs are formatted for clarity and easy parsing:
+    `YYYY-MM-DD HH:MM:SS,ms - LEVEL - logger.name - The log message`
 
 
 ## Design and Scalability Discussion
