@@ -35,7 +35,7 @@ used_numbers_table = Table(
     UniqueConstraint("number", name="uq_number"),
 )
 
-def init_db() -> None:
+async def init_db() -> None:
     """Initializes ALL configured database shards."""
     logger.info("Initializing all database shards...")
     for shard_id, engine in shard_engines.items():

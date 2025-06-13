@@ -38,11 +38,16 @@ app = FastAPI(
 )
 
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
+    """
+    Application startup event handler.
+    By making this an async function, FastAPI will wait for it to complete
+    before it starts accepting requests.
+    """
     setup_logging()
     logger.info("Application starting up...")
-    persistence.init_db()
-    logger.info("Application startup complete.")
+    await persistence.init_db()
+    logger.info("Application startup complete.Ready to accept requests.")
 
 @app.get(
     "/random",
