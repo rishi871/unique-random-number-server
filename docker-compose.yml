@@ -1,0 +1,41 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  db_shard0:
+    image: postgres:15
+    container_name: db_shard0
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: numbers_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - db_shard0_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d numbers_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db_shard1:
+    image: postgres:15
+    container_name: db_shard1
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: numbers_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - db_shard1_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d numbers_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_shard0_data:
+  db_shard1_data:
