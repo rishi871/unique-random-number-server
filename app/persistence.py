@@ -1,6 +1,6 @@
 # app/persistence.py
 """
-Handles all database interactions for persisting used numbers using SQLAlchemy Core.
+Handles all sharded database interactions for persisting used numbers using SQLAlchemy Core.
 """
 import logging
 from sqlalchemy import (
@@ -13,73 +13,73 @@ from sqlalchemy import (
     func,
     UniqueConstraint,
 )
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
-from .config import DATABASE_URL
+from .config import SHARDS
 
-# Set up logging
 logger = logging.getLogger(__name__)
 
-# SQLAlchemy engine and metadata setup
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# --- Shard-Aware Engine Management ---
+shard_engines = {
+    shard_id: create_engine(config["url"])
+    for shard_id, config in SHARDS.items()
+}
+
 metadata = MetaData()
 
-# Define the table for storing used numbers
-used_numbers = Table(
+used_numbers_table = Table(
     "used_numbers",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("number", Integer, nullable=False),
-    # This constraint is crucial for preventing duplicate numbers at the DB level.
     UniqueConstraint("number", name="uq_number"),
 )
 
-
 def init_db() -> None:
-    """
-    Initializes the database and creates the 'used_numbers' table if it doesn't exist.
-    This function is safe to call on every application startup.
-    """
-    logger.info("Initializing database...")
-    metadata.create_all(engine)
-    logger.info("Database initialized successfully.")
+    """Initializes ALL configured database shards."""
+    logger.info("Initializing all database shards...")
+    for shard_id, engine in shard_engines.items():
+        try:
+            logger.info("Initializing shard: %s", shard_id)
+            metadata.create_all(engine)
+            logger.info("Shard %s initialized successfully.", shard_id)
+        except OperationalError as e:
+            logger.critical(
+                "Failed to connect to shard %s. Check DB connection string and ensure it is running. Error: %s",
+                shard_id, e
+            )
 
-
-def add_used_number(number: int) -> bool:
-    """
-    Adds a number to the database of used numbers.
-
-    This function attempts to insert the number. If the number is already present,
-    the database's UNIQUE constraint will raise an IntegrityError, which we catch.
-    This mechanism is the core of our race-condition-safe number generation.
-
-    Args:
-        number: The integer number to add.
-
-    Returns:
-        True if the number was added successfully, False if it was a duplicate.
-    """
+def add_used_number(number: int, shard_id: str) -> bool:
+    """Adds a number to a SPECIFIC database shard."""
     try:
+        engine = shard_engines[shard_id]
         with engine.connect() as connection:
-            statement = used_numbers.insert().values(number=number)
+            statement = used_numbers_table.insert().values(number=number)
             connection.execute(statement)
             connection.commit()
             return True
     except IntegrityError:
-        # This occurs if another request added the same number between
-        # generation and insertion. This is expected under high load.
-        logger.warning("Attempted to insert duplicate number: %d", number)
+        logger.warning("Duplicate number %d on shard %s. This is expected under load.", number, shard_id)
         return False
+    except KeyError:
+        logger.error("Attempted to write to a non-existent shard: %s", shard_id)
+        raise
 
+def get_used_count_for_shard(shard_id: str) -> int:
+    """Counts how many numbers have been used in a specific shard."""
+    try:
+        engine = shard_engines[shard_id]
+        with engine.connect() as connection:
+            statement = select(func.count()).select_from(used_numbers_table)
+            count = connection.execute(statement).scalar_one_or_none()
+            return count or 0
+    except Exception as e:
+        logger.error("Could not retrieve count from shard %s: %s", shard_id, e)
+        return 0
 
-def get_used_count() -> int:
-    """
-    Counts how many numbers have been used so far.
-
-    Returns:
-        The total count of numbers in the 'used_numbers' table.
-    """
-    with engine.connect() as connection:
-        statement = select(func.count()).select_from(used_numbers)
-        count = connection.execute(statement).scalar_one_or_none()
-        return count or 0
+def get_total_used_count() -> int:
+    """Calculates the total number of used items by summing counts across all shards."""
+    total = 0
+    for shard_id in SHARDS:
+        total += get_used_count_for_shard(shard_id)
+    return total
