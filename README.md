@@ -1,121 +1,147 @@
 # Unique Random Number Server
 
-A simple but robust HTTP server built with Python and FastAPI that serves unique random numbers. The service guarantees that the same number will never be returned twice, even across server restarts, by persisting used numbers in a local SQLite database.
+A production-ready, highly scalable HTTP server built with Python, FastAPI, and PostgreSQL. It serves unique random numbers and is designed for high-throughput, distributed environments.
+
+The service guarantees that the same number will never be returned twice, even across server restarts and multiple running instances, by leveraging a sharded PostgreSQL backend.
 
 ## Features
 
-- **Unique Numbers**: Every request to `/random` gets a new number that has never been seen before.
-- **Persistent**: Used numbers are stored in an SQLite database, so state is maintained after restarts.
-- **Asynchronous**: Built with FastAPI for high performance.
-- **Robust**: Handles race conditions where two requests might generate the same number simultaneously.
-- **Tested**: Includes a suite of unit tests using `pytest`.
-- **Well-Structured**: The code is organized into logical modules for clarity and maintainability.
+-   **Guaranteed Uniqueness**: Every request to `/random` gets a new number that has never been seen before.
+-   **Horizontal Scalability**: Built on a **sharded database architecture** to distribute write load, allowing the system to scale beyond a single database server.
+-   **High Performance**: Built with FastAPI and Uvicorn for asynchronous, non-blocking I/O.
+-   **Persistent & Resilient**: State is persisted in a robust PostgreSQL database cluster. The design is resilient to single-shard failures.
+-   **Dynamic Configuration**: Uses Pydantic settings to manage configuration via environment variables or `.env` files, allowing easy deployment to any environment (local, staging, production) without code changes.
+-   **Dockerized Development Environment**: Includes a `docker-compose.yml` file to instantly set up the complete sharded database backend locally.
+-   **Production-Ready Logging**: Implements centralized, rotating file-based logging for easy monitoring and debugging.
 
 ## Project Structure
+
+The project follows a clean, modular structure to separate concerns.
 
 ```
 unique-random-number-server/
 ├── README.md
 ├── requirements.txt
 ├── .gitignore
+├── docker-compose.yml    # Defines the sharded database for local dev
+├── .env.example          # Template for environment variables
 ├── app/
 │   ├── __init__.py
-│   ├── server.py           # FastAPI app, routes, and lifespan logic
-│   ├── generator.py        # Core logic for generating unique numbers
-│   ├── persistence.py      # SQLite database interaction layer
-│   └── config.py           # Application constants (e.g., DB path, number range)
-└── tests/
-    └── test_random.py      # Unit tests for the API
+│   ├── server.py           # FastAPI app, routes, and startup logic
+│   ├── generator.py        # Shard routing and number generation logic
+│   ├── persistence.py      # Shard-aware database interaction layer
+│   └── config.py           # Dynamic settings management via Pydantic
+└── logs/                   # Log files are stored here (created automatically)
 ```
 
 ## Setup and Installation
 
-This project is compatible with **Python 3.8+** (including 3.12).
+### Prerequisites
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repo-url>
-    cd unique-random-number-server
-    ```
+-   Python 3.10+
+-   Docker and Docker Compose
 
-2.  **Create and activate a virtual environment:**
-    ```bash
-    # For Unix/macOS
-    python3 -m venv venv
-    source venv/bin/activate
+### 1. Clone the Repository
 
-    # For Windows
-    python -m venv venv
-    .\venv\Scripts\activate
-    ```
+```bash
+git clone <your-repo-url>
+cd unique-random-number-server
+```
 
-3.  **Install the required packages:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+### 2. Configure Your Environment
 
-## Running the Server
+The application is configured using environment variables. For local development, you can use a `.env` file.
 
-To start the web server, run the following command from the project's root directory:
+Copy the example file to create your local configuration:
+```bash
+cp .env.example .env
+```
+The default values in this file are pre-configured to work with the local Docker Compose setup. No changes are needed to run locally.
+
+### 3. Start the Database Backend
+
+This command will start two separate PostgreSQL database containers, acting as our two shards.
+
+```bash
+docker-compose up -d
+```
+The databases will be accessible on your host machine at `localhost:5432` (shard 0) and `localhost:5433` (shard 1).
+
+### 4. Set Up the Python Environment
+
+Create and activate a virtual environment to keep dependencies isolated.
+
+```bash
+# Create the environment
+python3 -m venv venv
+
+# Activate it (macOS/Linux)
+source venv/bin/activate
+
+# Activate it (Windows)
+.\venv\Scripts\activate
+```
+
+### 5. Install Python Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+## Running the Application
+
+With the databases running via Docker and the Python environment set up, you can now start the web server.
 
 ```bash
 uvicorn app.server:app --reload
 ```
+The server will be running at `http://127.0.0.1:8000`. It will automatically connect to the Dockerized databases defined in your `.env` file.
 
--   `uvicorn`: The ASGI server that runs the application.
--   `app.server:app`: Points to the `app` instance inside the `app/server.py` file.
--   `--reload`: Automatically reloads the server when you make code changes (for development).
-
-The server will be running at `http://127.0.0.1:8000`.
+### Stopping the Environment
+To stop the application and the databases cleanly, first stop the Uvicorn server (`Ctrl+C`), then run:
+```bash
+docker-compose down
+```
 
 ## Usage
 
-You can get a unique random number by sending a GET request to the `/random` endpoint.
+Send a GET request to the `/random` endpoint to receive a unique number.
 
 ### Using `curl`
-
 ```bash
 curl http://127.0.0.1:8000/random
 ```
-
 **Example Response:**
-
 ```json
 {
-  "number": 483102
+  "number": 874109
 }
 ```
 
-Each time you call it, a new, unique number will be returned. The first time you run the server, it will create a `numbers.db` file in the root directory to store state.
+You can also view the interactive API documentation (provided by FastAPI) by navigating to `http://127.0.0.1:8000/docs` in your browser.
 
-You can also check the interactive API documentation provided by FastAPI at `http://127.0.0.1:8000/docs`.
+## Configuration for Remote Databases
 
-## Logging
+This application is designed to connect to any PostgreSQL database. To use a remote or managed database (e.g., AWS RDS, Google Cloud SQL), simply **do not use a `.env` file**. Instead, set the environment variables directly in your deployment environment.
 
-The application implements centralized, rotating file-based logging.
+**Example for a cloud deployment:**
+```bash
+# Set the environment variables before starting the application
+export DB_SHARD_0_URL="postgresql+psycopg2://user:secret@prod-db-1.example.com:5432/numbers"
+export DB_SHARD_1_URL="postgresql+psycopg2://user:secret@prod-db-2.example.com:5432/numbers"
 
--   **Location**: All logs are written to the `logs/server.log` file in the project's root directory. The `logs/` directory is created automatically if it does not exist.
--   **Rotation**: To prevent the log file from growing infinitely, it is configured to "rotate". A new file is created when the current log file reaches 5MB in size. The system will keep the 3 most recent log files.
--   **Format**: Logs are formatted for clarity and easy parsing:
-    `YYYY-MM-DD HH:MM:SS,ms - LEVEL - logger.name - The log message`
+# Run the server in production mode
+uvicorn app.server:app --host 0.0.0.0 --port 8000
+```
 
+## Architectural Design and Scalability
 
-## Design and Scalability Discussion
+The service is built on a **Range-Based Sharding** model to achieve horizontal scalability.
 
-### Current Design
-
-The current implementation uses a "generate-and-test" approach, relying on the database's unique constraint.
-
-1.  A random number is generated within a pre-defined range (`1` to `1,000,000`).
-2.  The application attempts to `INSERT` this number into an SQLite table that has a `UNIQUE` constraint on the number column.
-3.  If the `INSERT` succeeds, the number is returned.
-4.  If the `INSERT` fails due to the `UNIQUE` constraint (meaning the number has already been used), the process repeats until a new, unused number is found and successfully inserted.
-
-**Pros:**
-- Simple to implement.
-- Stateless at the application level; all state is in the database.
-- Race-condition safe due to the atomic nature of database writes and constraints.
-
-**Cons:**
-- **Performance Degradation**: As the pool of used numbers grows, the probability of generating a "collision" (a number that's already been used) increases. This leads to more retries and higher latency per request.
-
+-   **Data Partitioning**: The total pool of numbers (e.g., 1 to 1,000,000) is divided into ranges. Each range is assigned to an independent PostgreSQL database instance, known as a "shard".
+-   **Routing Logic**: When a request for a number is received, the application's generator randomly selects a shard. It then generates a random number *only within that shard's assigned range* and attempts to insert it.
+-   **Benefits**:
+    -   **Write Throughput**: The write load is distributed across multiple databases, dramatically increasing the number of concurrent requests the system can handle.
+    -   **Fault Isolation**: If one database shard becomes unavailable, the other shards can continue to operate, making the system more resilient.
+    -   **Smaller Indexes**: Each database manages a smaller dataset, which can lead to faster index lookups and inserts.
+-   **Future Scaling**: To scale further, one would simply add a new shard configuration to `app/config.py` and deploy a new database instance. The application logic is designed to accommodate this seamlessly.
