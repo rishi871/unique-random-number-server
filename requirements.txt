@@ -4,7 +4,9 @@ uvicorn[standard]==0.30.1
 
 # Database
 sqlalchemy==2.0.31
-psycopg2-binary==2.9.9
+
+# Configuration Management 
+pydantic-settings==2.2.1
 
 # For testing
 pytest==8.2.2
