@@ -9,10 +9,11 @@ The service guarantees that the same number will never be returned twice, even a
 -   **Guaranteed Uniqueness**: Every request to `/random` gets a new number that has never been seen before.
 -   **Horizontal Scalability**: Built on a **sharded database architecture** to distribute write load, allowing the system to scale beyond a single database server.
 -   **High Performance**: Built with FastAPI and Uvicorn for asynchronous, non-blocking I/O.
--   **Persistent & Resilient**: State is persisted in a robust PostgreSQL database cluster. The design is resilient to single-shard failures.
--   **Dynamic Configuration**: Uses Pydantic settings to manage configuration via environment variables or `.env` files, allowing easy deployment to any environment (local, staging, production) without code changes.
--   **Dockerized Development Environment**: Includes a `docker-compose.yml` file to instantly set up the complete sharded database backend locally.
--   **Production-Ready Logging**: Implements centralized, rotating file-based logging for easy monitoring and debugging.
+-   **Persistent & Resilient**: State is persisted in a robust PostgreSQL database cluster.
+-   **Dynamic Configuration**: Uses Pydantic settings to manage configuration via environment variables or `.env` files, allowing easy deployment to any environment.
+-   **Dockerized Environments**: Includes `docker-compose.yml` files for both development and isolated testing database clusters.
+-   **Production-Ready Logging**: Implements rotating file-based logging for easy monitoring.
+-   **Tested**: Includes a full integration test suite using `pytest` that runs against a real database cluster.
 
 ## Project Structure
 
@@ -23,15 +24,18 @@ unique-random-number-server/
 ├── README.md
 ├── requirements.txt
 ├── .gitignore
-├── docker-compose.yml    # Defines the sharded database for local dev
-├── .env.example          # Template for environment variables
+├── docker-compose.yml          # Defines the sharded database for local dev
+├── docker-compose.test.yml     # Defines an isolated database cluster for testing
+├── .env.example                # Template for environment variables
 ├── app/
 │   ├── __init__.py
-│   ├── server.py           # FastAPI app, routes, and startup logic
-│   ├── generator.py        # Shard routing and number generation logic
-│   ├── persistence.py      # Shard-aware database interaction layer
-│   └── config.py           # Dynamic settings management via Pydantic
-└── logs/                   # Log files are stored here (created automatically)
+│   ├── server.py               # FastAPI app, routes, and startup logic
+│   ├── generator.py            # Shard routing and number generation logic
+│   ├── persistence.py          # Shard-aware database interaction layer
+│   └── config.py               # Dynamic settings management via Pydantic
+├── logs/                       # Log files are stored here (created automatically)
+└── tests/
+    └── test_random.py          # Integration tests for the API
 ```
 
 ## Setup and Installation
@@ -60,7 +64,7 @@ The default values in this file are pre-configured to work with the local Docker
 
 ### 3. Start the Database Backend
 
-This command will start two separate PostgreSQL database containers, acting as our two shards.
+This command will start two separate PostgreSQL database containers for development.
 
 ```bash
 docker-compose up -d
@@ -95,12 +99,42 @@ With the databases running via Docker and the Python environment set up, you can
 ```bash
 uvicorn app.server:app --reload
 ```
-The server will be running at `http://127.0.0.1:8000`. It will automatically connect to the Dockerized databases defined in your `.env` file.
+The server will be running at `http://127.0.0.1:8000`.
 
-### Stopping the Environment
+### Stopping the Development Environment
 To stop the application and the databases cleanly, first stop the Uvicorn server (`Ctrl+C`), then run:
 ```bash
 docker-compose down
+```
+
+## Testing the Application
+
+The project includes an integration test suite that runs against a real, containerized PostgreSQL database cluster, ensuring that tests are accurate and reliable. The test environment is completely isolated from the development environment.
+
+### 1. Start the Test Databases
+
+From the project's root directory, run the following command. This will start a dedicated set of PostgreSQL containers defined in `docker-compose.test.yml` on different ports (`5435`, `5436`).
+
+```bash
+docker-compose -f docker-compose.test.yml up -d
+```
+
+### 2. Run the Test Suite
+
+Make sure your virtual environment is activated, then run `pytest`.
+
+```bash
+pytest
+```
+
+The test suite will automatically connect to the dedicated test databases. A fixture ensures that all database tables are cleared after each test function, guaranteeing test isolation.
+
+### 3. Stop the Test Databases
+
+Once you are finished testing, you can shut down the test database containers.
+
+```bash
+docker-compose -f docker-compose.test.yml down
 ```
 
 ## Usage
@@ -117,7 +151,6 @@ curl http://127.0.0.1:8000/random
   "number": 874109
 }
 ```
-
 You can also view the interactive API documentation (provided by FastAPI) by navigating to `http://127.0.0.1:8000/docs` in your browser.
 
 ## Configuration for Remote Databases
@@ -138,10 +171,8 @@ uvicorn app.server:app --host 0.0.0.0 --port 8000
 
 The service is built on a **Range-Based Sharding** model to achieve horizontal scalability.
 
--   **Data Partitioning**: The total pool of numbers (e.g., 1 to 1,000,000) is divided into ranges. Each range is assigned to an independent PostgreSQL database instance, known as a "shard".
--   **Routing Logic**: When a request for a number is received, the application's generator randomly selects a shard. It then generates a random number *only within that shard's assigned range* and attempts to insert it.
+-   **Data Partitioning**: The total pool of numbers is divided into ranges. Each range is assigned to an independent PostgreSQL database instance, known as a "shard".
+-   **Routing Logic**: When a request for a number is received, the application's generator randomly selects a shard and attempts to generate a unique number within that shard's assigned range.
 -   **Benefits**:
     -   **Write Throughput**: The write load is distributed across multiple databases, dramatically increasing the number of concurrent requests the system can handle.
-    -   **Fault Isolation**: If one database shard becomes unavailable, the other shards can continue to operate, making the system more resilient.
-    -   **Smaller Indexes**: Each database manages a smaller dataset, which can lead to faster index lookups and inserts.
--   **Future Scaling**: To scale further, one would simply add a new shard configuration to `app/config.py` and deploy a new database instance. The application logic is designed to accommodate this seamlessly.
+    -   **Fault Isolation**: If one database shard becomes unavailable, the other shards can continue to operate.

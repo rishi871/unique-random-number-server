@@ -1,0 +1,33 @@
+# docker-compose.test.yml
+services:
+  # Test Shard 0 Database
+  test_db_shard0:
+    image: postgres:15
+    container_name: test_db_shard0
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=numbers_db
+    ports:
+      # Use different host ports to avoid conflict with dev databases
+      - "5435:5432"
+    volumes:
+      - test_db_shard0_data:/var/lib/postgresql/data
+
+  # Test Shard 1 Database
+  test_db_shard1:
+    image: postgres:15
+    container_name: test_db_shard1
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=numbers_db
+    ports:
+      # Use different host ports to avoid conflict with dev databases
+      - "5436:5432"
+    volumes:
+      - test_db_shard1_data:/var/lib/postgresql/data
+
+volumes:
+  test_db_shard0_data:
+  test_db_shard1_data:

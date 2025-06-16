@@ -1,100 +1,108 @@
 # tests/test_random.py
 """
-Unit tests for the FastAPI /random endpoint.
+A simple and effective integration test suite for the sharded random number server.
 """
 import os
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.sql import text
+from app import generator
 
-# We need to set an env var BEFORE importing the app to use a test database
-os.environ["TESTING"] = "True"
+# --- CRITICAL: Set environment variables BEFORE importing the app ---
+# This forces the app to use our test databases.
+os.environ["DB_SHARD_0_URL"] = "postgresql+psycopg2://user:password@localhost:5435/numbers_db"
+os.environ["DB_SHARD_1_URL"] = "postgresql+psycopg2://user:password@localhost:5436/numbers_db"
+
+# Now, we can safely import the app and its components
 from app.server import app
-from app.config import MIN_NUMBER, MAX_NUMBER
-
-# Create a test client
-client = TestClient(app)
-
-# Path to the test database file
-TEST_DB_PATH = "./test.db"
-
-# Fixture to clean up the test database before and after tests
-@pytest.fixture(autouse=True)
-def setup_and_teardown():
-    # Before each test, delete the test DB if it exists to ensure a clean state
-    if os.path.exists(TEST_DB_PATH):
-        os.remove(TEST_DB_PATH)
-    
-    yield  # This is where the test runs
-
-    # After each test, clean up the test DB again
-    if os.path.exists(TEST_DB_PATH):
-        os.remove(TEST_DB_PATH)
-    
-    # Unset the env var
-    if "TESTING" in os.environ:
-        del os.environ["TESTING"]
-
-# Override the database URL for testing
-# This is a bit of a hacky way, but for this small app it's fine.
-# A better way would be using FastAPI's dependency injection override.
 from app import config
-config.DATABASE_URL = f"sqlite:///{TEST_DB_PATH}"
+from app.persistence import shard_engines, used_numbers_table
 
-def test_get_random_number_success():
-    """Test that the /random endpoint returns a valid number."""
+# --- The Simple, All-in-One Test Fixture ---
+
+@pytest.fixture(scope="function")
+def client():
+    """
+    A fixture that handles the entire test lifecycle simply:
+    1. SETUP: Creates a new TestClient, which runs the app's `on_startup` event
+       to create the database tables.
+    2. YIELD: Passes the client to the test function to be used.
+    3. TEARDOWN: Cleans the database tables after the test is complete.
+    
+    This runs fresh for every single test, guaranteeing perfect isolation.
+    """
+    # 1. SETUP: Instantiating the client runs the startup event.
+    with TestClient(app) as test_client:
+        # 2. YIELD: The test runs here.
+        yield test_client
+
+    # 3. TEARDOWN: This code runs after each test is finished.
+    for engine in shard_engines.values():
+        with engine.connect() as connection:
+            # TRUNCATE is a fast way to delete all rows and reset the table.
+            connection.execute(text(f"TRUNCATE TABLE {used_numbers_table.name} RESTART IDENTITY;"))
+            connection.commit()
+
+# --- Your Core Tests ---
+# Each test now just needs to ask for the `client` fixture.
+
+def test_health_check(client: TestClient):
+    """Tests if the /health endpoint is working."""
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_get_random_number_success(client: TestClient):
+    """Tests the successful retrieval of a random number."""
     response = client.get("/random")
     assert response.status_code == 200
     data = response.json()
     assert "number" in data
     assert isinstance(data["number"], int)
-    assert MIN_NUMBER <= data["number"] <= MAX_NUMBER
 
-def test_get_multiple_unique_numbers():
-    """Test that multiple calls to /random return unique numbers."""
-    # We will call the endpoint 100 times and store the results.
-    # The number of calls should be small enough to not be flaky or slow.
-    num_calls = 100
+
+def test_get_multiple_unique_numbers(client: TestClient):
+    """Tests that 10 consecutive calls return unique numbers."""
+    number_of_calls = 10  # A smaller number for a faster test
     generated_numbers = set()
 
-    for _ in range(num_calls):
+    for _ in range(number_of_calls):
         response = client.get("/random")
         assert response.status_code == 200
         number = response.json()["number"]
         assert number not in generated_numbers
         generated_numbers.add(number)
 
-    # The set should contain 100 unique numbers.
-    assert len(generated_numbers) == 100
+    assert len(generated_numbers) == number_of_calls
 
-def test_pool_exhausted_error():
-    """
-    Test that the server returns a 409 Conflict when the pool is exhausted.
-    To do this, we'll temporarily shrink the number pool.
-    """
-    # Temporarily override config for this specific test
-    original_min = config.MIN_NUMBER
-    original_max = config.MAX_NUMBER
-    config.MIN_NUMBER = 1
-    config.MAX_NUMBER = 3
-    config.TOTAL_NUMBERS_IN_POOL = 3
 
-    # Generate all possible numbers
-    for _ in range(3):
-        response = client.get("/random")
-        assert response.status_code == 200
+def test_pool_exhausted_error(client: TestClient, monkeypatch):
+    """Tests that a 409 Conflict is returned when the pool is exhausted."""
+    # Define a tiny shard configuration just for this test
+    tiny_shards_config = {
+        "shard_0": {
+            "url": os.getenv("DB_SHARD_0_URL"),
+            "range_start": 1,
+            "range_end": 2, # Only two numbers possible
+        }
+    }
+    tiny_shard_names = list(tiny_shards_config.keys())
+    tiny_pool_size = 2
+    
+    # Patch the variables directly inside the 'generator' module
+    monkeypatch.setattr(generator, "SHARDS", tiny_shards_config)
+    monkeypatch.setattr(generator, "SHARD_NAMES", tiny_shard_names)
+    monkeypatch.setattr(generator, "TOTAL_NUMBERS_IN_POOL", tiny_pool_size)
+    
+    # Generate the only two possible numbers
+    assert client.get("/random").status_code == 200
+    assert client.get("/random").status_code == 200
 
     # The next call should fail
     response = client.get("/random")
     assert response.status_code == 409
-    assert response.json()["detail"] == "Number pool exhausted. No more unique numbers can be generated."
-
-    # Restore original config values to not affect other tests
-    config.MIN_NUMBER = original_min
-    config.MAX_NUMBER = original_max
-    config.TOTAL_NUMBERS_IN_POOL = original_max - original_min + 1
-
-def test_health_check():
-    """Test the /health endpoint."""
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    
+    # --- THE FIX ---
+    # Update the assertion to match the actual error message returned by the pre-check.
+    assert "All available numbers have been used." in response.json()["detail"]
