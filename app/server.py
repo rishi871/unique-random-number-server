@@ -8,7 +8,7 @@ import os
 from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI, HTTPException, status, Request
 
-from . import persistence
+from . import persistence, config
 from .generator import get_unique_random_number, NumberPoolExhaustedError
 
 logger = logging.getLogger(__name__)
@@ -28,8 +28,11 @@ def setup_logging():
 
     root_logger = logging.getLogger()
     if not root_logger.handlers:
-        root_logger.setLevel(logging.INFO)
+        log_level_to_set = config.settings.LOG_LEVEL
+        root_logger.setLevel(log_level_to_set)
         root_logger.addHandler(log_handler)
+        # Also log the current level so we know how verbose it is
+        logging.info(f"Logger configured with level: {log_level_to_set}")
 
 app = FastAPI(
     title="Unique Random Number Server (Sharded)",

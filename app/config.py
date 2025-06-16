@@ -25,6 +25,7 @@ Configuration settings and constants for the application.
 # with sensible defaults for local development using Docker Compose.
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Literal
 
 # --- Define the Settings Class ---
 # Pydantic will automatically read variables from environment variables or a .env file.
@@ -45,6 +46,11 @@ class Settings(BaseSettings):
     
     DB_SHARD_1_RANGE_START: int = 500_001
     DB_SHARD_1_RANGE_END: int = 1_000_000
+    
+    # --- NEW: Logging Configuration ---
+    # Defines the application's log level.
+    # Use 'INFO' for production and 'DEBUG' for development/troubleshooting.
+    LOG_LEVEL: Literal["DEBUG", "INFO", "WARN"] = "INFO"
 
 
 # --- Create a single, importable instance of the settings ---
@@ -73,3 +79,4 @@ TOTAL_NUMBERS_IN_POOL = (
     (settings.DB_SHARD_0_RANGE_END - settings.DB_SHARD_0_RANGE_START + 1) +
     (settings.DB_SHARD_1_RANGE_END - settings.DB_SHARD_1_RANGE_START + 1)
 )
+

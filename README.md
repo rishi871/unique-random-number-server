@@ -101,6 +101,22 @@ uvicorn app.server:app --reload
 ```
 The server will be running at `http://127.0.0.1:8000`.
 
+
+## Logging and Observability
+
+The application implements rotating file-based logging with a configurable verbosity level.
+
+-   **Location**: All logs are written to the `logs/server.log` file.
+-   **Rotation**: To prevent the log file from growing infinitely, it is rotated when it reaches 5MB in size. The system keeps the 3 most recent log files.
+-   **Configurable Log Level**: You can control the log verbosity by setting the `LOG_LEVEL` environment variable.
+    -   **`INFO` (Default)**: Recommended for production. Provides high-level information about requests and application status.
+    -   **`DEBUG`**: Recommended for development and troubleshooting. Provides detailed, step-by-step information about the internal logic of the application.
+
+    To enable debug logging, add the following line to your `.env` file and restart the server:
+    ```
+    LOG_LEVEL=DEBUG
+    ```
+
 ### Stopping the Development Environment
 To stop the application and the databases cleanly, first stop the Uvicorn server (`Ctrl+C`), then run:
 ```bash

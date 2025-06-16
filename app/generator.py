@@ -20,6 +20,7 @@ def get_unique_random_number() -> int:
     Generates a unique random number by selecting a shard and then generating
     a number within that shard's defined range.
     """
+    logger.debug("Starting number generation process.")
     if persistence.get_total_used_count() >= TOTAL_NUMBERS_IN_POOL:
         logger.warning("Number pool is exhausted based on count check.")
         raise NumberPoolExhaustedError("All available numbers have been used.")
@@ -40,7 +41,11 @@ def get_unique_random_number() -> int:
         )
 
         if persistence.add_used_number(candidate, shard_id=selected_shard_id):
+            logger.debug("Successfully claimed number %d.", candidate)
             return candidate
-        
+        else:
+            # This new log is very useful for seeing why a loop is continuing
+            logger.debug("Collision for number %d on shard %s. Retrying...", candidate, selected_shard_id)
+            
     logger.error("Failed to generate a unique number after %d attempts.", max_attempts)
     raise NumberPoolExhaustedError("Could not find an available number slot after multiple attempts.")

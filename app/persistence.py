@@ -51,6 +51,7 @@ async def init_db() -> None:
 
 def add_used_number(number: int, shard_id: str) -> bool:
     """Adds a number to a SPECIFIC database shard."""
+    logger.debug("Attempting to INSERT number %d into used_numbers on shard %s", number, shard_id)
     try:
         engine = shard_engines[shard_id]
         with engine.connect() as connection:
@@ -79,7 +80,9 @@ def get_used_count_for_shard(shard_id: str) -> int:
 
 def get_total_used_count() -> int:
     """Calculates the total number of used items by summing counts across all shards."""
+    logger.debug("Calculating total used count across all shards.")
     total = 0
     for shard_id in SHARDS:
         total += get_used_count_for_shard(shard_id)
+    logger.debug("Total used count is %d", total)
     return total
